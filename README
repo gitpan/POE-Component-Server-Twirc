@@ -1,0 +1,170 @@
+NAME
+    POE::Component::Server::Twirc - Twitter/IRC gateway
+
+SYNOPSIS
+        use POE::Component::Server::Twirc;
+
+        POE::Component::Server::Twirc->new(
+            irc_nickname        => $my_irc_nickname,
+            twitter_username    => $my_twitter_username,
+            twitter_password    => $my_twitter_password,
+            twitter_screen_name => $my_twitter_screen_name,
+        );
+
+        POE::Kernel->run;
+
+DESCRIPTION
+    "POE::Component::Server::Twirc" provides an IRC/Twitter gateway. Twitter
+    friends are added to a channel and messages they post on twitter appear
+    as channel messages in IRC. The IRC interface supports several Twitter
+    features, including posting status updates, following and un-following
+    Twitter feeds, enabling and disabling device notifications, sending
+    direct messages, and querying information about specific Twitter users.
+
+    Friends who are also followers are given "voice" as a visual clue in
+    IRC.
+
+METHODS
+  new
+    Spawns a POE component encapsulating the Twitter/IRC gateway.
+
+    Arguments:
+
+    irc_nickname
+        (Required) The irc nickname used by the owning user.
+
+    twitter_username
+        (Required) The username (email address) used to authenticate with
+        Twitter.
+
+    twitter_password
+        (Required) The password used to authenticate with Twitter.
+
+    twitter_screen_name
+        (Required) The user's Twitter screen name.
+
+    irc_server_name
+        (Optional) The name of the IRC server. Defaults to "twitter.irc".
+
+    irc_server_port
+        (Optional) The port number the IRC server binds to. Defaults to
+        6667.
+
+    irc_mask
+        The IRC user/host mask used to restrict connecting users. Defaults
+        to "*@127.0.0.1".
+
+    irc_password
+        Password used to authenticate to the IRC server.
+
+    irc_botname
+        The name of the channel operator bot. Defaults to "tweeter". Select
+        a name that does not conflict with friends, followers, or your own
+        IRC nick.
+
+    irc_botircname
+        Text to be used as the channel operator bot's IRC full name.
+
+    irc_channel
+        The name of the channel to use. Defaults to &twitter.
+
+    twitter_retry
+        The number of seconds between polls for new status updates. Defaults
+        to 300 (5 minutes).
+
+    twitter_retry_on_error
+        The number of seconds to wait before retrying a failed poll for
+        friends, followers, or status updates. Defaults to 60 (1 minute).
+
+    twitter_alias
+        An alias to use for displaying incoming status updates from the
+        owning user. This is necessary if the user's IRC nickname and
+        Twitter screen name are the same. Defaults to "me".
+
+    echo_posts
+        If false, posts sent by POE::Component::Server::Twirc will not be
+        redisplayed when received is the friends_timeline. Defaults to
+        false.
+
+        Set echo_posts(1) to see your own tweets in chronological order with
+        the others.
+
+    favorites_count
+        How many favorites candidates to display for selection. Defaults to
+        3.
+
+    truncate_to
+        When displaying tweets for selection, they will be truncated to this
+        length. Defaults to 60.
+
+    check_replies
+        Experimental! If true, checks for @replies when polling for friends'
+        timeline updates and merges them with normal status updates.
+        Normally, only replies from friends are displayed. This provides the
+        display of @replies from users not followed. It comes at the expense
+        of an additional API call on each timeline poll, so keep that in
+        mind when setting twitter_retry. Twitter imposes an API call limit
+        of 100 calls per hour.
+
+        This also has the effect of adding senders of @replies to the
+        channel, even though they are not followed.
+
+  COMMANDS
+    Commands are entered as public messages in the IRC channel in the form:
+
+        command arg1 arg2 ... argn
+
+    Where the arguments, if any, depend upon the command.
+
+    post *status*
+        Post a status update. E.g.,
+
+            post Now cooking tweets with twirc!
+
+    follow *id*
+        Follow a new Twitter user, *id*. In Twitter parlance, this creates a
+        friendship.
+
+    unfollow *id*
+        Stop following Twitter user *id*. In Twitter, parlance, this
+        destroys a friendship.
+
+    block *id*
+        Block Twitter user *id*.
+
+    unblock *id*
+        Stop blocking Twitter user *id*.
+
+    whois *id*
+        Displays information about Twitter user *id*, including name,
+        location, and description.
+
+    notify *on|off* *id ...*
+        Turns device notifications on or off for the list of Twitter IDs.
+
+    favorite *friend* [*count*]
+        Mark *friend*'s tweet as a favorite. Optionally, specify the number
+        of tweets to display for selection with *count* (Defaults to 3.)
+
+    check_replies *on|off*
+        Turns reply checking on or off. See checke_replies in configuration.
+
+    help
+        Display a simple help message
+
+    /msg *id* *text*
+        Sends a direct message to Twitter user *id* using an IRC private
+        message.
+
+SEE ALSO
+    App::Twirc
+
+AUTHOR
+    Marc Mims <marc@questright.com>
+
+LICENSE
+    Copyright (c) 2008 Marc Mims
+
+    You may distribute this code and/or modify it under the same terms as
+    Perl itself.
+
