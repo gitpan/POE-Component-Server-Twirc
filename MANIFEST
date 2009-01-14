@@ -1,7 +1,5 @@
 bin/twirc
 Changes
-examples/twitirc.pl
-examples/twitirc.yml
 inc/Module/AutoInstall.pm
 inc/Module/Install.pm
 inc/Module/Install/AutoInstall.pm
@@ -14,10 +12,14 @@ inc/Module/Install/Metadata.pm
 inc/Module/Install/Win32.pm
 inc/Module/Install/WriteAll.pm
 lib/App/Twirc.pm
+lib/App/Twirc/Manual.pod
 lib/POE/Component/Server/Twirc.pm
+lib/POE/Component/Server/Twirc/LogAppender.pm
+lib/POE/Component/Server/Twirc/State.pm
 Makefile.PL
 MANIFEST			This list of files
 README
+t/00-load.t
 t/99-pod_coverage.t
 t/99-pod_spelling.t
 t/99-pod_syntax.t

@@ -3,11 +3,10 @@ use Moose;
 use Config::Any;
 use POE::Component::Server::Twirc;
 use Proc::Daemon;
+use Path::Class::File;
 
 with 'MooseX::Getopt',
      'MooseX::Log::Log4perl::Easy';
-
-Log::Log4perl->easy_init;
 
 has configfile => (
     metaclass   => 'Getopt',
@@ -31,6 +30,13 @@ sub run {
     die "a configuration (option --configifle) is required\n" unless $file;
 
     my $config = Config::Any->load_files({ files => [ $file ], use_ext => 1 });
+    $config = $config->[0]{$file};
+
+    Log::Log4perl->easy_init({ layout => '%d{HH:mm:ss} [%p] %m%n' });
+
+    # Hack! Make sure state_file is absolute before we background (which does a cd /).
+    $config->{state_file} = Path::Class::File->new($config->{state_file})->absolute->stringify
+        if $config->{state_file};
 
     if ( $self->background ) {
         Proc::Daemon::Init;
@@ -40,7 +46,7 @@ sub run {
         die "$@\n" if $@;
     }
 
-    my $poco = POE::Component::Server::Twirc->new($config->[0]{$file});
+    my $poco = POE::Component::Server::Twirc->new($config);
     POE::Kernel->run;
 }
 
