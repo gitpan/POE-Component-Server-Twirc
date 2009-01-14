@@ -16,7 +16,7 @@ with 'MooseX::Log::Log4perl';
 # TODO: remove HTML::Entities and decode_entities calls.
 use HTML::Entities;
 
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 
 =head1 NAME
 
@@ -270,6 +270,16 @@ replies, direct messages, and timelines.
 
 has state_file => ( isa => 'Str', is => 'ro' );
 
+=item verbose_refresh
+
+(Optional) If set (1), when a refresh (whether automatic or the result of the
+L</"refresh"> command) finds no new messages, a notice to that effect will be
+written to the channel.
+
+=cut
+
+has verbose_refresh => ( isa => 'Bool', is => 'rw', default => 0 );
+
 =back
 
 =cut
@@ -291,6 +301,8 @@ has _stash => (
 has _state => (
        accessor => 'state', isa => 'POE::Component::Server::Twirc::State', is => 'rw',
        default => sub { POE::Component::Server::Twirc::State->new } );
+has _unread_posts => ( isa => 'HashRef', is => 'rw', default => sub { {} } );
+has _topic_id     => ( isa => 'Int', is => 'rw', default => 0 );
 
 sub post_ircd {
     my $self = shift;
@@ -320,6 +332,10 @@ sub twitter_error {
 sub set_topic {
     my ($self, $status) = @_;
 
+    # only set the topic if it's newer than the last topic
+    return unless $status->{id} > $self->_topic_id;
+
+    $self->_topic_id($status->{id});
     $self->post_ircd(daemon_cmd_topic => $self->irc_botname, $self->irc_channel,
            decode_entities($status->{text}));
 };
@@ -736,14 +752,15 @@ event friends_timeline => sub {
 
         # message from self
         if ( $name eq $self->twitter_screen_name ) {
-            $new_topic = $status unless $status =~ /^\s*\@/;
+            $self->state->user_timeline_id($status->{id});
+            $new_topic = $status unless $status->{text} =~ /^\s*\@/;
 
             # TODO: is this even necessary? Can we just send a privmsg from a real user?
             $name = $self->twitter_alias if $self->twitter_alias;
-            next if !$self->echo_posts && $status->{id} <= ($self->state->user_timeline_id || 0);
 
-            $self->state->user_timeline_id($status->{id})
-                if $status->{id} > ($self->state->user_timeline_id || 0);
+            # if we posted this status from twirc, we've already seen it
+            my $seen = delete $self->_unread_posts->{$status->{id}};
+            next if $seen && !$self->echo_posts;
         }
 
         unless ( $self->users->{$name} ) {
@@ -756,20 +773,32 @@ event friends_timeline => sub {
         push @{ $self->tweet_stack }, { name => $name, text => $text }
     }
 
-    unless (@$statuses) {
+    if ( @$statuses == 0 && $self->verbose_refresh ) {
       $self->bot_notice($channel, "That refresh didn't get any new tweets.");
     }
 
     $self->set_topic($new_topic) if $new_topic;
     $self->yield('throttle_messages') if $self->joined;
+    $self->yield('poll_cleanup');
+};
 
-    # periodically store state
+# handle cleanup after the important work has had a chance to complete
+event poll_cleanup => sub {
+    my ($self) = @_;
+
+    # store state
     if ( $self->state_file ) {
         eval { $self->state->store($self->state_file) };
         if ( $@ ) {
             $@ =~ s/ at .*//s;
             $self->log->error($@);
         }
+    }
+
+    # _unread_posts should always be empty at this point
+    if ( my @unread = keys %{$self->_unread_posts} ) {
+        $self->log->error("recent posts were missing from the feed: @unread");
+        $self->_unread_posts = {}; # since we should never see them, now
     }
 };
 
@@ -818,7 +847,6 @@ event user_timeline => sub {
 
     return unless @$statuses;
 
-    $self->state->user_timeline_id($statuses->[0]{id});
     for my $status ( @$statuses ) {
         # skip @replies
         unless ( $status->{text} =~ /^\s*\@/ ) {
@@ -871,8 +899,8 @@ event cmd_post => sub {
 
     $self->log->debug("    update returned $status");
 
-    $self->set_topic($status);
-    $self->state->user_timeline_id($status->{id});
+    $self->set_topic($status) unless $status->{text} =~ /^\s*\@/;
+    $self->_unread_posts->{$status->{id}} = 1;
 };
 
 =item follow I<id>
@@ -1032,7 +1060,7 @@ event cmd_notify => sub {
     my $onoff = shift @nicks;
 
     unless ( $onoff && $onoff =~ /^on|off$/ ) {
-        $self->bot_says($channel, "Usage: notify [on|off] nick[ nick [...]]");
+        $self->bot_says($channel, "Usage: notify on|off nick[ nick [...]]");
         return;
     }
 
@@ -1116,7 +1144,7 @@ event cmd_check_replies => sub {
     my ($self, $channel, $onoff) = @_[OBJECT, ARG0, ARG1];
 
     unless ( $onoff && $onoff =~ /^on|off$/ ) {
-        $self->bot_says($channel, "Usage: check_replies [on|off]");
+        $self->bot_says($channel, "Usage: check_replies on|off");
         return;
     }
     $self->check_replies($onoff eq 'on' ? 1 : 0);
@@ -1132,7 +1160,7 @@ event cmd_check_direct_messages => sub {
     my ($self, $channel, $onoff) = @_[OBJECT, ARG0, ARG1];
 
     unless ( $onoff && $onoff =~ /^on|off$/ ) {
-        $self->bot_says($channel, "Usage: check_replies [on|off]");
+        $self->bot_says($channel, "Usage: check_direct_messages on|off");
         return;
     }
     $self->check_direct_messages($onoff eq 'on' ? 1 : 0);
@@ -1171,7 +1199,7 @@ event cmd_help => sub {
     $self->bot_says($channel, "Available commands:");
     $self->bot_says($channel, join ' ' => sort qw/
         post follow unfollow block unblock whois notify refresh favorite
-        check_replies rate_limit_status
+        check_replies rate_limit_status verbose_refresh
     /);
     $self->bot_says($channel, '/msg nick for a direct message.')
 };
@@ -1181,6 +1209,23 @@ event cmd_refresh => sub {
 
     $self->yield('delay_friends_timeline');
 };
+
+=item verbose_refresh I<on|off>
+
+Turns C<verbose_refresh> on or off.  See L</"verbose_refresh"> in configuration.
+
+=cut
+
+event cmd_verbose_refresh => sub {
+    my ($self, $channel, $onoff) = @_[OBJECT, ARG0, ARG1];
+
+    unless ( $onoff && $onoff =~ /^on|off$/ ) {
+        $self->bot_says($channel, "Usage: verbose_refresh on|off");
+        return;
+    }
+    $self->verbose_refresh($onoff eq 'on' ? 1 : 0);
+};
+
 
 1;
 
