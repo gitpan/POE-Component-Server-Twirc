@@ -16,7 +16,7 @@ with 'MooseX::Log::Log4perl';
 # TODO: remove HTML::Entities and decode_entities calls.
 use HTML::Entities;
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 
 =head1 NAME
 
@@ -491,10 +491,10 @@ event ircd_daemon_part => sub {
     my($self, $user, $ch) = @_[OBJECT, ARG0, ARG1];
 
     return unless my($nick) = $user =~ /^([^!]+)!/;
-    return if $self->users->{$nick};
     return if $nick eq $self->irc_botname;
+    delete $self->users->{$nick};
 
-    $self->joined(0) if $ch eq $self->irc_channel;
+    $self->joined(0) if $ch eq $self->irc_channel && $nick eq $self->irc_nickname;
 };
 
 event ircd_daemon_quit => sub {
@@ -513,6 +513,8 @@ event ircd_daemon_public => sub {
     my ($self, $user, $channel, $text) = @_[OBJECT, ARG0, ARG1, ARG2];
 
     return unless $channel eq $self->irc_channel;
+
+    $text =~ s/\s+$//;
 
     my $nick = ( $user =~ m/^(.*)!/)[0];
     $self->log->debug("[ircd_daemon_public] $nick: $text");
@@ -675,8 +677,7 @@ event direct_messages => sub {
     # We don't want to flood the user with DMs, so if this is the first time,
     # i.e., no DM id in saved state, just set the high water mark and return.
     unless ( $self->state->direct_message_id ) {
-        my $high_water = $self->twitter->direct_messages;
-        if ( $high_water ) {
+        if ( my $high_water = eval { $self->twitter->direct_messages } ) {
             $self->state->direct_message_id($high_water->[0]{id}) if @$high_water;
         }
         else {
@@ -685,7 +686,9 @@ event direct_messages => sub {
         return;
     }
 
-    my $messages = $self->twitter->direct_messages({ since_id => $self->state->direct_message_id });
+    my $messages = eval {
+        $self->twitter->direct_messages({ since_id => ($self->state->direct_message_id || 1) })
+    };
     unless ( $messages ) {
         $self->twitter_error('direct_messages failed');
         return;
@@ -726,7 +729,7 @@ event friends_timeline => sub {
 
     my $statuses = eval {
         $self->twitter->friends_timeline({
-            since_id => $self->state->friends_timeline_id
+            since_id => ($self->state->friends_timeline_id || 1)
         });
     };
 
@@ -795,10 +798,14 @@ event poll_cleanup => sub {
         }
     }
 
-    # _unread_posts should always be empty at this point
-    if ( my @unread = keys %{$self->_unread_posts} ) {
-        $self->log->error("recent posts were missing from the feed: @unread");
-        $self->_unread_posts = {}; # since we should never see them, now
+    # It is possible to get here with _unread_posts populated, for instance, if a post
+    # has been sent *during* processing of the most recent poll results.  However, we
+    # should never have an _uread post older than friends_timeline_id.
+    for my $id ( keys %{$self->_unread_posts} ) {
+        if ( $id <= $self->state->friends_timeline_id ) {
+            $self->log->error("recent post missing from the feed: $id");
+            delete $self->_unread_posts->{$id};
+        }
     }
 };
 
@@ -813,7 +820,9 @@ sub merge_replies {
          );
     }
 
-    my $replies = eval {$self->twitter->replies({ since_id => $self->state->reply_id }) };
+    my $replies = eval {
+        $self->twitter->replies({ since_id => ($self->state->reply_id || 1) })
+    };
     if ( $replies ) {
         if ( @$replies ) {
             $self->log->debug("[merge_replies] ", scalar @$replies, " replies");
@@ -932,7 +941,11 @@ event cmd_follow => sub {
     $self->post_ircd(daemon_cmd_join => $name, $self->irc_channel);
     $self->users->{$nick} = $friend;
 
-    if ( eval { $self->twitter->relationship_exists($nick, $self->twitter_screen_name) } ) {
+    # work around back compat bug in Net::Twitter 2.01
+    my @args = ($nick, $self->twitter_screen_name);
+    @args = ( { user_a => $args[0], user_b => $args[1] } ) if Net::Twitter->VERSION >= 2.00;
+
+    if ( eval { $self->twitter->relationship_exists(@args) } ) {
         $self->post_ircd(daemon_cmd_mode =>
             $self->irc_botname, $self->irc_channel, '+v', $nick);
         $self->bot_notice($channel, qq/Now following $id./);
@@ -962,7 +975,6 @@ event cmd_unfollow => sub {
 
     $self->post_ircd(daemon_cmd_part => $id, $self->irc_channel);
     $self->post_ircd(del_spooked_nick => $id);
-    delete $self->users->{$id};
     $self->bot_notice($channel, qq/No longer following $id./);
 };
 
@@ -1175,7 +1187,7 @@ Displays the remaining number of API requests available in the current hour.
 event cmd_rate_limit_status => sub {
     my ($self, $channel) = @_[OBJECT, ARG0];
 
-    if ( defined(my $r = $self->twitter->rate_limit_status) ) {
+    if ( my $r = eval { $self->twitter->rate_limit_status } ) {
         my $reset_time = sprintf "%02d:%02d:%02d", (localtime $r->{reset_time_in_seconds})[2,1,0];
         my $seconds_remaning = $r->{reset_time_in_seconds} - time;
         my $time_remaning = sprintf "%d:%02d", int($seconds_remaning / 60), $seconds_remaning % 60;
