@@ -46,9 +46,32 @@ sub run {
         die "$@\n" if $@;
     }
 
-    my $poco = POE::Component::Server::Twirc->new($config);
+    $config->{plugins} = $self->_init_plugins($config);
+    POE::Component::Server::Twirc->new($config);
     POE::Kernel->run;
 }
+
+sub _init_plugins {
+    my ($self, $config) = @_;
+
+    my $plugins = delete $config->{plugins};
+
+    my @plugins;
+    for my $plugin ( @$plugins ) {
+        my ($class, $options) = ref $plugin ? %$plugin : ($plugin, {});
+        $class = "App::Twirc::Plugin::$class" unless $class =~ s/^\+//;
+
+        eval "use $class";
+        die $@ if $@;
+
+        push @plugins, $class->new($options);
+    }
+    return \@plugins;
+}
+
+no Moose;
+
+__PACKAGE__->meta->make_immutable;
 
 1;
 
@@ -67,8 +90,10 @@ App::Twirc - IRC is my twitter client
 
 =head1 DESCRIPTION
 
-C<App::Twirc> is an IRC server making the IRC client of your choice your twitter client.  The C<twitirc>
+C<App::Twirc> is an IRC server making the IRC client of your choice your twitter client.  The C<twirc>
 program in this distribution launches the application.
+
+See L<App::Twirc::Manual> for more details.
 
 =head1 OPTIONS
 
