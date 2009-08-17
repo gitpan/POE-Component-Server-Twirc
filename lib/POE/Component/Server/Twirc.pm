@@ -9,10 +9,11 @@ use Email::Valid;
 use Text::Truncate;
 use POE::Component::Server::Twirc::LogAppender;
 use POE::Component::Server::Twirc::State;
+use Encode qw/decode/;
 
 with 'MooseX::Log::Log4perl';
 
-our $VERSION = '0.07';
+our $VERSION = '0.08';
 
 =head1 NAME
 
@@ -372,6 +373,8 @@ sub _build_state { POE::Component::Server::Twirc::State->new }
 has _unread_posts => ( isa => 'HashRef', is => 'rw', default => sub { {} } );
 has _topic_id     => ( isa => 'Int', is => 'rw', default => 0 );
 
+has client_encoding => ( isa => 'Str', is  => 'rw', default => sub { 'utf-8' } );
+
 sub twitter {
     my ($self, $method, @args) = @_;
 
@@ -618,7 +621,9 @@ event ircd_daemon_part => sub {
     return unless my($nick) = $user_name =~ /^([^!]+)!/;
     return if $nick eq $self->irc_botname;
 
-    $self->delete_user($self->get_user_by_nick($nick));
+    if ( my $user = $self->get_user_by_nick($nick) ) {
+        $self->delete_user($user);
+    }
 
     $self->joined(0) if $ch eq $self->irc_channel && $nick eq $self->irc_nickname;
 };
@@ -639,6 +644,8 @@ event ircd_daemon_public => sub {
     my ($self, $user, $channel, $text) = @_[OBJECT, ARG0, ARG1, ARG2];
 
     return unless $channel eq $self->irc_channel;
+
+    $text = decode($self->client_encoding, $text);
 
     $text =~ s/\s+$//;
 
@@ -701,6 +708,8 @@ event ircd_daemon_privmsg => sub {
     my $me = $self->irc_nickname;
     return unless $user =~ /^\Q$me\E!/;
 
+    $text = decode($self->client_encoding, $text);
+
     unless ( $self->get_user_by_nick($target_nick) ) {
         # TODO: handle the error the way IRC would?? (What channel?)
         $self->bot_says($self->irc_channel, qq/You don't appear to be following $target_nick; message not sent./);
@@ -733,7 +742,7 @@ event display_statuses => sub {
 
     while ( my $entry = shift @{$self->tweet_stack} ) {
         my $name = $entry->user->screen_name;
-        $name = $self->irc_alias if $name eq $self->twitter_screen_name;
+        $name = $self->twitter_alias if $name eq $self->irc_nickname;
         $self->post_ircd(daemon_cmd_privmsg => $name, $self->irc_channel, $_)
             for split /[\r\n]+/, $entry->text;
     }
@@ -847,7 +856,7 @@ event display_direct_messages => sub {
 
     while ( my $msg = shift @{$self->dm_stack} ) {
         my $name = $msg->sender_screen_name;
-        $name = $self->irc_alias if $name eq $self->twitter_screen_name;
+        $name = $self->twitter_alias if $name eq $self->irc_nickname;
         $self->post_ircd(daemon_cmd_privmsg => $name, $self->irc_nickname, $_)
             for split /\r?\n/, $msg->text;
     }
