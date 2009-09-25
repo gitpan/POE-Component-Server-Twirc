@@ -27,7 +27,7 @@ requires:
   MooseX::POE: 0
   MooseX::SimpleConfig: 0
   MooseX::Storage: 0
-  Net::Twitter: 3.04002
+  Net::Twitter: 3.07000
   POE::Component::Server::IRC: 0.02005
   POE::Component::TSTP: 0
   Path::Class::File: 0
@@ -37,4 +37,4 @@ requires:
 resources:
   license: http://dev.perl.org/licenses/
   repository: git://github.com/semifor/twirc.git
-version: 0.08
+version: 0.09
