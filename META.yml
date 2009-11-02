@@ -32,9 +32,9 @@ requires:
   POE::Component::TSTP: 0
   Path::Class::File: 0
   Proc::Daemon: 0
-  Text::Truncate: 0
+  String::Truncate: 0
   perl: 5.8.1
 resources:
   license: http://dev.perl.org/licenses/
   repository: git://github.com/semifor/twirc.git
-version: 0.09
+version: 0.10
