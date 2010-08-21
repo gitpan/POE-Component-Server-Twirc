@@ -4,16 +4,17 @@ use MooseX::POE;
 use MooseX::AttributeHelpers;
 use LWP::UserAgent::POE;
 use POE qw(Component::Server::IRC);
-use Net::Twitter 3.04002; # for decode_html_entities
+use Net::Twitter;
 use Email::Valid;
 use String::Truncate qw/elide/;
 use POE::Component::Server::Twirc::LogAppender;
 use POE::Component::Server::Twirc::State;
 use Encode qw/decode/;
+use Try::Tiny;
 
 with 'MooseX::Log::Log4perl';
 
-our $VERSION = '0.10';
+our $VERSION = '0.11';
 
 =head1 NAME
 
@@ -83,7 +84,7 @@ has twitter_password    => ( isa => 'Str', is => 'ro', required => 1 );
 
 =cut
 
-has twitter_screen_name => ( isa => 'Str', is => 'ro', required => 1 );
+has twitter_screen_name => ( isa => 'Str', is => 'rw' );
 
 
 =item irc_server_name
@@ -200,6 +201,17 @@ has twitter_alias       => ( isa => 'Str', is => 'ro', default => 'me' );
 =cut
 
 has twitter_args => ( isa => 'HashRef', is => 'ro', default => sub { {} } );
+
+=item extra_net_twitter_traits
+
+(Optional) Additional traits used to construct the Net::Twitter instance.
+
+=cut
+
+has extra_net_twitter_traits => (
+    is      => 'ro',
+    default => sub { [] },
+);
 
 =item echo_posts
 
@@ -445,8 +457,8 @@ sub delete_user {
     $self->delete_user_by_nick($user->screen_name);
 }
 
-sub get_replies          { shift->get_statuses(replies          => 'reply_id'            ) }
-sub get_friends_timeline { shift->get_statuses(friends_timeline => 'friends_timeline_id' ) }
+sub get_replies          { shift->get_statuses(replies       => 'reply_id'            ) }
+sub get_friends_timeline { shift->get_statuses(home_timeline => 'friends_timeline_id' ) }
 
 sub get_statuses {
     my ($self, $twitter_method, $state_id_name) = @_;
@@ -468,6 +480,39 @@ sub sort_unique_statuses {
         sort { $a->id <=> $b->id }
         map { @$_ } @_
     ];
+}
+
+sub _net_twitter_opts {
+    my $self = shift;
+
+    my %config = (
+        # ROT13: Gjvggre qbrf abg jnag pbafhzre xrl/frperg vapyhqrq va bcra
+        # fbhepr nccf. Gurl frrz gb guvax cebcevrgnel pbqr vf fnsre orpnhfr
+        # gur pbafhzre perqragvnyf ner boshfpngrq.  Fb, jr'yy boshfpngr gurz
+        # urer jvgu ebg13 naq jr'yy or "frpher" whfg yvxr n cebcevrgnel ncc.
+        ( grep tr/a-zA-Z/n-za-mN-ZA-M/, map $_,
+            pbafhzre_xrl     => 'ntqifMSFhMC0NdSWmBWgtN',
+            pbafhzre_frperg  => 'CDDA2pAiDcjb6saxt0LLwezCBV97VPYGAF0LMa0oH',
+        ),
+        traits               => [qw/API::REST OAuth InflateObjects/],
+        useragent_class      => 'LWP::UserAgent::POE',
+        useragent            => "twirc/$VERSION",
+        decode_html_entities => 1,
+        %{ $self->twitter_args },
+    );
+
+    foreach my $plugin (@{$self->plugins}){
+        if ($plugin->can('plugin_traits')) {
+            push @{ $config{traits} }, $plugin->plugin_traits();
+        }
+    }
+
+    my %unique_traits = map { $_ => undef }
+        @{ $config{traits} },
+        @{ $self->extra_net_twitter_traits };
+    $config{traits} = [ keys %unique_traits ];
+
+    return %config;
 }
 
 sub START {
@@ -516,21 +561,6 @@ sub START {
         $logger->add_appender($appender);
     }
 
-    $self->yield('friends');
-    $self->yield('user_timeline'); # for topic setting
-    $self->yield('poll_twitter');
-
-    $self->_twitter(Net::Twitter->new(
-        traits               => [qw/API::REST InflateObjects/],
-        useragent_class      => 'LWP::UserAgent::POE',
-        username             => $self->twitter_username,
-        password             => $self->twitter_password,
-        useragent            => "twirc/$VERSION",
-        source               => 'twircgw',
-        decode_html_entities => 1,
-        %{ $self->twitter_args },
-    ));
-
     if ( $self->state_file && -r $self->state_file ) {
         eval {
             $self->state(POE::Component::Server::Twirc::State->load($self->state_file))
@@ -540,6 +570,22 @@ sub START {
             $self->log->error($@);
         }
     }
+
+    $self->_twitter(Net::Twitter->new(
+        $self->_net_twitter_opts()
+    ));
+
+    if ( $self->state->access_token && $self->state->access_token_secret ) {
+        $self->_twitter->access_token($self->state->access_token);
+        $self->_twitter->access_token_secret($self->state->access_token_secret);
+    }
+    else {
+        $self->yield('xauth');
+    }
+
+    $self->yield('friends');
+    $self->yield('user_timeline'); # for topic setting
+    $self->yield('poll_twitter');
 
     return $self;
 }
@@ -551,6 +597,27 @@ event _child => sub {
 
     $self->log->debug("[_child] $event $child");
     $kernel->detach_child($child) if $event eq 'create';
+};
+
+event xauth => sub {
+    my $self = shift;
+
+    # LWP::UserAgent::POE doesn't handle SSL, so we need a blocking UA
+    my $nt = Net::Twitter->new(
+        $self->_net_twitter_opts,
+        useragent_class => 'LWP::UserAgent',
+    );
+
+    my ($token, $secret, $user_id, $screen_name)
+        = $nt->xauth($self->twitter_username, $self->twitter_password);
+
+    $self->_twitter->access_token($token);
+    $self->_twitter->access_token_secret($secret);
+    $self->twitter_screen_name($screen_name);
+
+    $self->state->access_token($token);
+    $self->state->access_token_secret($secret);
+    eval { $self->state->store($self->state_file) };
 };
 
 event poco_shutdown => sub {
@@ -743,8 +810,10 @@ event display_statuses => sub {
     while ( my $entry = shift @{$self->tweet_stack} ) {
         my $name = $entry->user->screen_name;
         $name = $self->twitter_alias if $name eq $self->irc_nickname;
+        my $text = try { "RT \@${ \$entry->retweeted_status->user->screen_name }: ${ \$entry->retweeted_status->text }" }
+                || $entry->text;
         $self->post_ircd(daemon_cmd_privmsg => $name, $self->irc_channel, $_)
-            for split /[\r\n]+/, $entry->text;
+            for split /[\r\n]+/, $text;
     }
 };
 
@@ -939,7 +1008,7 @@ event user_timeline => sub {
     $self->log->debug("[user_timetline] calling...");
     # Work around a twitter api bug by passing id; without it, sometimes the wrong users statuses
     # are returned.
-    my $statuses = $self->twitter(user_timeline => { id =>  $self->twitter_screen_name });
+    my $statuses = $self->twitter(user_timeline => { screen_name =>  $self->twitter_screen_name });
     unless ( $statuses ) {
         $_[KERNEL]->delay(user_timeline => 60);
     }
@@ -1156,10 +1225,11 @@ event cmd_notify => sub {
     }
 };
 
-=item favorite I<friend> [I<count>]
+=item favorite I<screen_name> [I<count>]
 
-Mark I<friend>'s tweet as a favorite.  Optionally, specify the number of tweets
-to display for selection with I<count> (Defaults to 3.)
+Mark a tweet as a favorite.  Specify the user by I<screen_name> and select from a
+list of recent tweets. Optionally, specify the number of tweets to display for
+selection with I<count> (Defaults to 3.)
 
 =cut
 
@@ -1171,20 +1241,15 @@ event cmd_favorite => sub {
 
     $self->log->debug("[cmd_favorite] $nick");
 
-    unless ( $self->get_user_by_nick($nick) ) {
-        $self->bot_says($channel, "You're not following $nick.");
-        return;
-    }
-
-    my $recent = $self->twitter(user_timeline => { id => $nick, count => $count }) || return;
+    my $recent = $self->twitter(user_timeline => { screen_name => $nick, count => $count }) || return;
     if ( @$recent == 0 ) {
         $self->bot_says($channel, "$nick has no recent tweets");
         return;
     }
 
     $self->stash({
-        favorite_candidates => [ map $_->id, @$recent ],
-        handler => 'handle_favorite',
+        handler    => '_handle_favorite',
+        candidates => [ map $_->id, @$recent ],
     });
 
     $self->bot_says($channel, 'Which tweet?');
@@ -1193,14 +1258,14 @@ event cmd_favorite => sub {
     }
 };
 
-sub handle_favorite {
+sub _handle_favorite {
     my ($self, $channel, $index) = @_;
 
     $self->log->debug("[handle_favorite] $index");
 
-    my @favorite_candidates = @{$self->stash->{favorite_candidates} || []};
-    if ( $index =~ /^\d+$/ && 0 < $index && $index <= @favorite_candidates ) {
-        if ( $self->twitter(create_favorite => { id => $favorite_candidates[$index - 1] }) ) {
+    my @candidates = @{$self->stash->{candidates} || []};
+    if ( $index =~ /^\d+$/ && 0 < $index && $index <= @candidates ) {
+        if ( $self->twitter(create_favorite => { id => $candidates[$index - 1] }) ) {
             $self->bot_notice($channel, 'favorite added');
         }
         $self->clear_stash;
@@ -1280,6 +1345,151 @@ event cmd_rate_limit_status => sub {
     }
 };
 
+=item retweet I<screen_name> [I<count>]
+
+Re-tweet another user's status.  Specify the user by I<screen_name> and select from a
+list of recent tweets. Optionally, specify the number of tweets to display for
+selection with I<count> (Defaults to 3.)
+
+=cut
+
+event cmd_retweet => sub {
+    my ( $self, $channel, $args ) = @_[OBJECT, ARG0, ARG1];
+
+    unless ( defined $args ) {
+        $self->bot_says($channel, 'usage: retweet nick [-N]');
+        return;
+    }
+
+    my ( $nick, $count ) = split /\s+/, $args;
+
+    $count ||= $self->favorites_count;
+
+    my $recent = $self->twitter(user_timeline => { screen_name => $nick, count => $count }) || return;
+    if ( @$recent == 0 ) {
+        $self->bot_says($channel, "$nick has no recent tweets");
+        return;
+    }
+
+    $self->stash({
+        handler    => '_handle_retweet',
+        candidates => [ map $_->id, @$recent ],
+    });
+
+    $self->bot_says($channel, 'Which tweet?');
+    for ( 1..@$recent ) {
+        $self->bot_says($channel, "[$_] " . elide($recent->[$_ - 1]->text, $self->truncate_to));
+    }
+};
+
+sub _handle_retweet {
+    my ($self, $channel, $index) = @_;
+
+    my @candidates = @{$self->stash->{candidates} || []};
+    if ( $index =~ /^\d+$/ && 0 < $index && $index <= @candidates ) {
+        $self->twitter(retweet => { id => $candidates[$index - 1] });
+        $self->clear_stash;
+        return 1; # handled
+    }
+    return 0; # unhandled
+};
+
+=item reply I<screen_name> [I<-count>] I<message>
+
+Reply to another user's status.  Specify the user by I<screen_name> and select
+from a list of recent tweets. Optionally, specify the number of tweets to
+display for selection with I<-count> (Defaults to 3.) Note that the count
+parameter is prefixed with a dash.
+
+=cut
+
+event cmd_reply => sub {
+    my ( $self, $channel, $args ) = @_[OBJECT, ARG0, ARG1];
+
+    unless ( defined $args ) {
+        $self->bot_says($channel, "usage: reply nick [-N] message-text");
+        return;
+    }
+
+    my ( $nick, $count, $message ) = $args =~ /
+        ^@?(\S+)        # nick; strip leading @ if there is one
+        \s+
+        (?:-(\d+)\s+)?  # optional count: -N
+        (.*)            # the message
+    /x;
+    unless ( defined $nick && defined $message ) {
+        $self->bot_says($channel, "usage: reply nick [-N] message-text");
+        return;
+    }
+
+
+    $count ||= $self->favorites_count;
+
+    my $recent = $self->twitter(user_timeline => { screen_name => $nick, count => $count }) || return;
+    if ( @$recent == 0 ) {
+        $self->bot_says($channel, "$nick has no recent tweets");
+        return;
+    }
+
+    $self->stash({
+        handler    => '_handle_reply',
+        candidates => [ map $_->id, @$recent ],
+        recipient  => $nick,
+        message    => $message,
+    });
+
+    $self->bot_says($channel, 'Which tweet?');
+    for ( 1..@$recent ) {
+        $self->bot_says($channel, "[$_] " . elide($recent->[$_ - 1]->text, $self->truncate_to));
+    }
+};
+
+sub _handle_reply {
+    my ($self, $channel, $index) = @_;
+
+    my @candidates = @{$self->stash->{candidates} || []};
+    if ( $index =~ /^\d+$/ && 0 < $index && $index <= @candidates ) {
+        my $message = sprintf '@%s %s', @{$self->stash}{qw/recipient message/};
+        if ( (my $n = length($message) - 140) > 0 ) {
+            $self->bot_says($channel, "Message not sent; $n characters too long. Limit is 140 characters.");
+        }
+        else {
+            $self->twitter(update => {
+                status => $message,
+                in_reply_to_status_id => $candidates[$index - 1],
+            });
+        }
+        $self->clear_stash;
+        return 1; # handled
+    }
+    return 0; # unhandled
+};
+
+=item report_spam
+
+Report 1 or more screen names as spammers.
+
+=cut
+
+event cmd_report_spam => sub {
+    my ( $self, $channel, $args ) = @_[OBJECT, ARG0, ARG1];
+
+    unless ( $args ) {
+        $self->bot_says($channel, "spam requires list of 1 or more spammers");
+        return;
+    }
+
+    for my $spammer ( split /\s+/, $args ) {
+        $self->yield(report_spam_helper => $spammer);
+    }
+};
+
+event report_spam_helper => sub {
+    my ( $self, $spammer ) = @_[OBJECT, ARG0];
+
+    $self->twitter(report_spam => { screen_name => $spammer });
+};
+
 =item help
 
 Display a simple help message
@@ -1292,6 +1502,7 @@ event cmd_help => sub {
     $self->bot_says($channel, join ' ' => sort qw/
         post follow unfollow block unblock whois notify refresh favorite
         check_replies rate_limit_status verbose_refresh
+        retweet report_spam
     /);
     $self->bot_says($channel, '/msg nick for a direct message.')
 };
@@ -1335,6 +1546,10 @@ L<App::Twirc>
 =head1 AUTHOR
 
 Marc Mims <marc@questright.com>
+
+=head1 CONTRIBUTORS
+
+Adam Prime <adam.prime@utoronto.ca> (@adamprime)
 
 =head1 LICENSE
 

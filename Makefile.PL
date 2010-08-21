@@ -8,11 +8,12 @@ all_from 'lib/POE/Component/Server/Twirc.pm';
 
 install_script  'bin/twirc';
 
-requires 'MooseX::POE'                 => 0;
-requires 'Net::Twitter'                => '3.07000';
+requires 'MooseX::POE'                 => 0.205;
+requires 'Net::Twitter'                => '3.11007'; # xauth
 requires 'Email::Valid'                => 0;
 requires 'POE::Component::Server::IRC' => 0.02005;
 requires 'Log::Log4perl';
+requires 'POE::Component::SSLify';
 requires 'POE::Component::TSTP';
 requires 'LWP::UserAgent::POE'         => '0.02';
 requires 'String::Truncate';
