@@ -4,12 +4,18 @@ use MooseX::Storage;
 
 with Storage(format => 'JSON', io => 'File');
 
-has friends_timeline_id => ( isa => 'Int', is => 'rw' );
-has user_timeline_id    => ( isa => 'Int', is => 'rw' );
-has reply_id            => ( isa => 'Int', is => 'rw' );
-has direct_message_id   => ( isa => 'Int', is => 'rw' );
-has access_token        => ( isa => 'Str', is => 'rw' );
-has access_token_secret => ( isa => 'Str', is => 'rw' );
+has access_token         => isa => 'Str', is => 'rw';
+has access_token_secret  => isa => 'Str', is => 'rw';
+has twitter_users        => isa => 'HashRef', is => 'ro', default => sub { {} },
+    traits => [qw/Hash/],
+    handles => {
+        set_user_by_id    => 'set',
+        get_user_by_id    => 'get',
+        delete_user_by_id => 'delete',
+        get_users         => 'values',
+    };
+has followers            => isa => 'HashRef', is => 'rw', default => sub { {} };
+has followers_updated_at => is => 'rw', isa => 'Int', default => 0;
 
 no Moose;
 

@@ -25,7 +25,9 @@ lib/POE/Component/Server/Twirc/State.pm
 Makefile.PL
 MANIFEST			This list of files
 META.yml
+MYMETA.json
 README
+semifor.versions
 t/00-load.t
 t/40-plugin-bang-commands.t
 t/40-plugin-secondary-account.t

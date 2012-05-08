@@ -1,0 +1,71 @@
+{
+   "abstract" : "Twitter/IRC gateway",
+   "author" : [
+      "Marc Mims <marc@questright.com>"
+   ],
+   "dynamic_config" : 0,
+   "generated_by" : "Module::Install version 1.06, CPAN::Meta::Converter version 2.112150",
+   "license" : [
+      "perl_5"
+   ],
+   "meta-spec" : {
+      "url" : "http://search.cpan.org/perldoc?CPAN::Meta::Spec",
+      "version" : "2"
+   },
+   "name" : "POE-Component-Server-Twirc",
+   "no_index" : {
+      "directory" : [
+         "inc",
+         "t"
+      ]
+   },
+   "prereqs" : {
+      "build" : {
+         "requires" : {
+            "ExtUtils::MakeMaker" : "6.59"
+         }
+      },
+      "configure" : {
+         "requires" : {
+            "ExtUtils::MakeMaker" : "6.59"
+         }
+      },
+      "runtime" : {
+         "requires" : {
+            "AnyEvent::Twitter::Stream" : 0,
+            "Config::Any" : 0,
+            "Encode" : 0,
+            "FindBin" : 0,
+            "HTML::Entities" : 0,
+            "LWP::UserAgent::POE" : "0.02",
+            "Log::Log4perl" : 0,
+            "Moose" : 0,
+            "MooseX::Getopt" : "0.15",
+            "MooseX::Log::Log4perl::Easy" : 0,
+            "MooseX::POE" : "0.205",
+            "MooseX::SimpleConfig" : 0,
+            "MooseX::Storage" : 0,
+            "Net::Twitter" : "3.11007",
+            "POE::Component::Server::IRC" : "0.02005",
+            "POE::Component::TSTP" : 0,
+            "Path::Class::File" : 0,
+            "Proc::Daemon" : 0,
+            "Regexp::Common::URI" : 0,
+            "Scalar::Util" : 0,
+            "String::Truncate" : 0,
+            "Try::Tiny" : 0,
+            "perl" : "5.008001"
+         }
+      }
+   },
+   "release_status" : "stable",
+   "resources" : {
+      "license" : [
+         "http://dev.perl.org/licenses/"
+      ],
+      "repository" : {
+         "url" : "git://github.com/semifor/twirc.git"
+      }
+   },
+   "version" : "0.14"
+}
