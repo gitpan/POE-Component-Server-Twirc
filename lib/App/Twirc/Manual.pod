@@ -130,6 +130,11 @@ option to C<&log>, then you can join the C<&log> channel and see the copious
 debug messages that C<twirc> generates.  This may be useful for trouble
 shooting or problem reporting.
 
+=item log_level
+
+Twirc supports C<log_level> values OFF, FATAL, ERROR, WARN, INFO, DEBUG, and
+TRACE.  The default is WARN.
+
 =item state_file
 
 File used to store state information between sessions, including Twitter OAuth

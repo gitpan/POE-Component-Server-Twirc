@@ -42,7 +42,7 @@
             "Moose" : 0,
             "MooseX::Getopt" : "0.15",
             "MooseX::Log::Log4perl::Easy" : 0,
-            "MooseX::POE" : "0.205",
+            "MooseX::POE" : "0.215",
             "MooseX::SimpleConfig" : 0,
             "MooseX::Storage" : 0,
             "Net::Twitter" : "3.11007",
@@ -67,5 +67,5 @@
          "url" : "git://github.com/semifor/twirc.git"
       }
    },
-   "version" : "0.14"
+   "version" : "0.15"
 }
