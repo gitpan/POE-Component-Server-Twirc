@@ -19,7 +19,7 @@ no_index:
     - inc
     - t
 requires:
-  AnyEvent::Twitter::Stream: 0
+  AnyEvent::Twitter::Stream: 0.23
   Config::Any: 0
   Encode: 0
   FindBin: 0
@@ -32,7 +32,7 @@ requires:
   MooseX::POE: 0.215
   MooseX::SimpleConfig: 0
   MooseX::Storage: 0
-  Net::Twitter: 3.11007
+  Net::Twitter: 4.00006
   POE::Component::Server::IRC: 0.02005
   POE::Component::TSTP: 0
   Path::Class::File: 0
@@ -45,4 +45,4 @@ requires:
 resources:
   license: http://dev.perl.org/licenses/
   repository: git://github.com/semifor/twirc.git
-version: 0.15
+version: 0.16
